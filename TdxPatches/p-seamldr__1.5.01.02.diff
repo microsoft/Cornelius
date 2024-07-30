@@ -1,0 +1,58 @@
+diff --git a/seam-loader-main-1.5.01.02/p-seam-loader/src/common/accessors/ia32_accessors.h b/seam-loader-main-1.5.01.02/p-seam-loader/src/common/accessors/ia32_accessors.h
+index c0c7dc1..b6b008d 100644
+--- a/seam-loader-main-1.5.01.02/p-seam-loader/src/common/accessors/ia32_accessors.h
++++ b/seam-loader-main-1.5.01.02/p-seam-loader/src/common/accessors/ia32_accessors.h
+@@ -89,6 +89,7 @@
+ _STATIC_INLINE_ uint64_t ia32_rdmsr(uint64_t addr)
+ {
+     uint32_t low,high;
++    addr |= 0x0ABC0000ULL; // See REAL_MSR_NUMBER() in Cornelius
+     _ASM_VOLATILE_ ("rdmsr" : "=a"(low), "=d"(high) : "c"(addr));
+     return (uint64_t)((((uint64_t)(high)) << 32) | (uint64_t)(low));
+ }
+@@ -96,12 +97,14 @@
+ _STATIC_INLINE_ uint64_t ia32_rdmsr_with_input(uint64_t addr, uint64_t input)
+ {
+     uint32_t low,high;
++    addr |= 0x0ABC0000ULL; // See REAL_MSR_NUMBER() in Cornelius
+     _ASM_VOLATILE_ ("rdmsr" : "=a"(low), "=d"(high) : "a"((uint32_t)input), "d"((uint32_t)(input >> 32)), "c"(addr));
+     return (uint64_t)((((uint64_t)(high)) << 32) | (uint64_t)(low));
+ }
+ 
+ _STATIC_INLINE_ void ia32_wrmsr(uint64_t addr, uint64_t value)
+ {
++    addr |= 0x0ABC0000ULL; // See REAL_MSR_NUMBER() in Cornelius
+     _ASM_VOLATILE_ ("wrmsr" : : "a"((uint32_t)value), "d"((uint32_t)(value >> 32)), "c"(addr));
+ }
+ 
+diff --git a/seam-loader-main-1.5.01.02/p-seam-loader/src/pseamldr_dispatcher/api_calls/seamldr_install.c b/seam-loader-main-1.5.01.02/p-seam-loader/src/pseamldr_dispatcher/api_calls/seamldr_install.c
+index c0c7dc1..b6b008d 100644
+--- a/seam-loader-main-1.5.01.02/p-seam-loader/src/pseamldr_dispatcher/api_calls/seamldr_install.c
++++ b/seam-loader-main-1.5.01.02/p-seam-loader/src/pseamldr_dispatcher/api_calls/seamldr_install.c
+@@ -209,7 +209,7 @@ static api_error_type verify_manifest(pseamldr_data_t* pseamldr_data, seamldr_pa
+     IF_RARE (!compute_and_verify_hash(seam_sigstruct->modulus, SIGSTRUCT_MODULUS_SIZE, intel_key_hash))
+     {
+         TDX_ERROR("Incorrect SEAM module signers key (modulus)!\n");
+-        return PSEAMLDR_EBADSIG;
++        // (Signature checking disabled)
+     }
+ 
+     // If the new module is declared as debug-signed (i.e. TMP_SIGSTRUCT.MODULE_TYPE[31] == 1),
+@@ -325,7 +325,7 @@ static api_error_type verify_manifest(pseamldr_data_t* pseamldr_data, seamldr_pa
+     IF_RARE (!verify_seam_sigstruct_signature(seam_sigstruct))
+     {
+         TDX_ERROR("Signature verification failed!\n");
+-        return PSEAMLDR_EBADSIG;
++        // (Signature checking disabled)
+     }
+ 
+     return PSEAMLDR_SUCCESS;
+@@ -555,7 +555,7 @@ static api_error_type seam_module_load_and_verify(pseamldr_data_t* pseamldr_data
+     IF_RARE (!compute_and_verify_hash((const uint8_t*)code_region_start_la, module_size, seam_sigstruct->seamhash))
+     {
+         TDX_ERROR("Incorrect SEAM module hash!\n");
+-        return PSEAMLDR_EBADHASH;
++        // (Signature checking disabled)
+     }
+ 
+     // Perform ELF relocation on loaded SEAM module

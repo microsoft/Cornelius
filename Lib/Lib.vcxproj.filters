@@ -1,0 +1,31 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="sanitizers.c" />
+    <ClCompile Include="commands.c" />
+    <ClCompile Include="elf.c" />
+    <ClCompile Include="emulator.c" />
+    <ClCompile Include="invariants.c" />
+    <ClCompile Include="paging.c" />
+    <ClCompile Include="seam.c" />
+    <ClCompile Include="snapshot.c" />
+    <ClCompile Include="util.c" />
+    <ClCompile Include="vm.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="common.h" />
+    <ClInclude Include="IntelDefs\tdx-defs.h">
+      <Filter>IntelDefs</Filter>
+    </ClInclude>
+    <ClInclude Include="IntelDefs\pseamldr-defs.h">
+      <Filter>IntelDefs</Filter>
+    </ClInclude>
+    <ClInclude Include="x86-defs.h" />
+    <ClInclude Include="Cornelius.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="IntelDefs">
+      <UniqueIdentifier>{4c14d529-5fd6-44e9-aeba-e0342207bd56}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

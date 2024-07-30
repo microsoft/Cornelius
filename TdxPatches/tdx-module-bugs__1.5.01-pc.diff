@@ -1,0 +1,33 @@
+diff --git a/tdx-module-1.5.01-pc/src/td_dispatcher/tdx_td_dispatcher.c b/tdx-module-1.5.01-pc/src/td_dispatcher/tdx_td_dispatcher.c
+index f9c5d48..9e55f89 100644
+--- a/tdx-module-1.5.01-pc/src/td_dispatcher/tdx_td_dispatcher.c
++++ b/tdx-module-1.5.01-pc/src/td_dispatcher/tdx_td_dispatcher.c
+@@ -544,6 +544,7 @@ stepping_filter_e tdx_td_l1_l2_dispatcher_common_prologue(tdx_module_local_t* lo
+     }
+     else
+     {
++/* THIS IS BOGUS
+         // BHB draining sequence
+         // There are 6 taken branches in each iteration (one CALL, four JMPs, and one JNZ),
+         // so for GLC (194 branch stews in BHB), NUM_ITERS = round-up(194 / 6) = 32.
+@@ -567,6 +568,7 @@ stepping_filter_e tdx_td_l1_l2_dispatcher_common_prologue(tdx_module_local_t* lo
+             "add %1, %%rsp\n"
+             "lfence\n"
+             : : "a"(num_iters), "b"(num_iters_multi_8) : "memory", "rcx");
++*/
+     }
+ 
+     // Save current time to verify on next TD entry and for TDEXIT filter checks
+diff --git a/tdx-module-1.5.01-pc/src/td_transitions/td_exit.c b/tdx-module-1.5.01-pc/src/td_transitions/td_exit.c
+index 6ed91a9..74c9c69 100644
+--- a/tdx-module-1.5.01-pc/src/td_transitions/td_exit.c
++++ b/tdx-module-1.5.01-pc/src/td_transitions/td_exit.c
+@@ -180,7 +180,7 @@ static void load_vmm_state_before_td_exit(tdx_module_local_t* local_data_ptr)
+     }
+     else
+     {
+-        wrmsr_opt(IA32_TSX_CTRL_MSR_ADDR, local_data_ptr->vmm_non_extended_state.ia32_tsx_ctrl, IA32_TSX_CTRL_DISABLE_VALUE);
++        // THIS IS BOGUS: wrmsr_opt(IA32_TSX_CTRL_MSR_ADDR, local_data_ptr->vmm_non_extended_state.ia32_tsx_ctrl, IA32_TSX_CTRL_DISABLE_VALUE);
+     }
+ 
+     /*

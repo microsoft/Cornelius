@@ -6,6 +6,13 @@
 #include <windows.h>
 #include "common.h"
 
+typedef enum {
+    MOD_INDIRECT_0 = 0,
+    MOD_INDIRECT_1 = 1,
+    MOD_INDIRECT_4 = 2,
+    MOD_DIRECT = 3
+} MOD;
+
 typedef union {
     struct {
         UINT8 Rm : 3;
@@ -14,6 +21,15 @@ typedef union {
     };
     UINT8 Raw;
 } REGMODRM;
+
+typedef union {
+    struct {
+        UINT8 Base : 3;
+        UINT8 Index : 3;
+        UINT8 Scale : 2;
+    };
+    UINT8 Raw;
+} SIB;
 
 typedef union {
     struct {
@@ -72,12 +88,17 @@ EmulateVMREAD(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCon
 {
     WHV_REGISTER_NAME SrcGpr;
     WHV_REGISTER_NAME DstGpr;
-    UINT64 AdvanceBy;
     enum VmcsType VmcsType;
     UINT64 VmcsField;
+    UINT8 *InstructionBytes = ExitContext->VpException.InstructionBytes;
+    UINT8 DispSize;
+    UINT8 SibSize;
+    UINT8 RexSize = 0;
+    REXPREFIX RexPrefix = { 0 };
+    REGMODRM RegModRM;
+    SIB Sib = { 0 };
     PUINT8 DstHva;
     UINT64 DstGva;
-    UINT64 DstPa;
     UINT32 DstOffset;
 
     VmcsType = GetCurrentVmcsType(Vm, VcpuNum);
@@ -88,170 +109,65 @@ EmulateVMREAD(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCon
         return VcpuActionEmulationError;
     }
 
-    //
-    // XXX: properly decode the instruction here
-    //
+    if (IsRexPrefix(InstructionBytes[0])) {
+        RexSize = 1;
+        RexPrefix.Raw = InstructionBytes[0];
+    }
 
-    // 0F 78 03          vmread  qword ptr [rbx], rax
-    if (ExitContext->VpException.InstructionByteCount >= 3 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x0F\x78\x03", 3)) {
-        SrcGpr = WHvX64RegisterRax;
-        DstGpr = WHvX64RegisterRbx;
-        DstOffset = 0;
-        AdvanceBy = 3;
-    }
-    // 0f 78 01             	vmread %rax,(%rcx)
-    else if (ExitContext->VpException.InstructionByteCount >= 3 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x0F\x78\x01", 3)) {
-        SrcGpr = WHvX64RegisterRax;
-        DstGpr = WHvX64RegisterRcx;
-        DstOffset = 0;
-        AdvanceBy = 3;
-    }
-    // 0f 78 04 24          	vmread %rax,(%rsp)
-    else if (ExitContext->VpException.InstructionByteCount >= 4 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x0F\x78\x04\x24", 4)) {
-        SrcGpr = WHvX64RegisterRax;
-        DstGpr = WHvX64RegisterRsp;
-        DstOffset = 0;
-        AdvanceBy = 4;
-    }
-    // 0f 78 84 24 NN NN NN NN	vmread %rax,NN(%rsp)
-    else if (ExitContext->VpException.InstructionByteCount >= 8 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x0F\x78\x84\x24", 4)) {
-        SrcGpr = WHvX64RegisterRax;
-        DstGpr = WHvX64RegisterRsp;
-        DstOffset = *((PUINT32)&ExitContext->VpException.InstructionBytes[4]);
-        AdvanceBy = 8;
-    }
-    // 0f 78 44 24 NN           vmread %rax,NN(%rsp)
-    else if (ExitContext->VpException.InstructionByteCount >= 5 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x0F\x78\x44\x24", 4)) {
-        SrcGpr = WHvX64RegisterRax;
-        DstGpr = WHvX64RegisterRsp;
-        DstOffset = ExitContext->VpException.InstructionBytes[4];
-        AdvanceBy = 5;
-    }
-    // 0f 78 5c 24 NN           vmread %rbx,NN(%rsp)
-    else if (ExitContext->VpException.InstructionByteCount >= 5 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x0F\x78\x5c\x24", 4)) {
-        SrcGpr = WHvX64RegisterRbx;
-        DstGpr = WHvX64RegisterRsp;
-        DstOffset = ExitContext->VpException.InstructionBytes[4];
-        AdvanceBy = 5;
-    }
-    // 0f 78 47 NN          	vmread %rax,NN(%rdi)
-    else if (ExitContext->VpException.InstructionByteCount >= 4 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x0F\x78\x47", 3)) {
-        SrcGpr = WHvX64RegisterRax;
-        DstGpr = WHvX64RegisterRdi;
-        DstOffset = ExitContext->VpException.InstructionBytes[3];
-        AdvanceBy = 4;
-    }
-    // 0f 78 43 NN          	vmread %rax,NN(%rbx)
-    else if (ExitContext->VpException.InstructionByteCount >= 4 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x0F\x78\x43", 3)) {
-        SrcGpr = WHvX64RegisterRax;
-        DstGpr = WHvX64RegisterRbx;
-        DstOffset = ExitContext->VpException.InstructionBytes[3];
-        AdvanceBy = 4;
-    }
-    // 0f 78 83 NN NN NN NN 	vmread %rax,0x88(%rbx)
-    else if (ExitContext->VpException.InstructionByteCount >= 4 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x0F\x78\x83", 3)) {
-        SrcGpr = WHvX64RegisterRax;
-        DstGpr = WHvX64RegisterRbx;
-        DstOffset = *((PUINT32)&ExitContext->VpException.InstructionBytes[3]);
-        AdvanceBy = 7;
-    }
-    // 41 0f 78 04 24       	vmread %rax,(%r12)
-    else if (ExitContext->VpException.InstructionByteCount >= 5 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x41\x0F\x78\x04\x24", 5)) {
-        SrcGpr = WHvX64RegisterRax;
-        DstGpr = WHvX64RegisterR12;
-        DstOffset = 0;
-        AdvanceBy = 5;
-    }
-    // 41 0f 78 45 NN       	vmread %rax,NN(%r13)
-    else if (ExitContext->VpException.InstructionByteCount >= 5 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x41\x0F\x78\x45", 4)) {
-        SrcGpr = WHvX64RegisterRax;
-        DstGpr = WHvX64RegisterR13;
-        DstOffset = ExitContext->VpException.InstructionBytes[4];
-        AdvanceBy = 5;
-    }
-    // 41 0f 78 06          	vmread %rax,(%r14)
-    else if (ExitContext->VpException.InstructionByteCount >= 4 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x41\x0F\x78\x06", 4)) {
-        SrcGpr = WHvX64RegisterRax;
-        DstGpr = WHvX64RegisterR14;
-        DstOffset = 0;
-        AdvanceBy = 4;
-    }
-    // 41 0f 78 46 NN       	vmread %rax,NN(%r14)
-    else if (ExitContext->VpException.InstructionByteCount >= 5 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x41\x0F\x78\x46", 4)) {
-        SrcGpr = WHvX64RegisterRax;
-        DstGpr = WHvX64RegisterR14;
-        DstOffset = ExitContext->VpException.InstructionBytes[4];
-        AdvanceBy = 5;
-    }
-    // 41 0f 78 07          	vmread %rax,(%r15)
-    else if (ExitContext->VpException.InstructionByteCount >= 4 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x41\x0F\x78\x07", 4)) {
-        SrcGpr = WHvX64RegisterRax;
-        DstGpr = WHvX64RegisterR15;
-        DstOffset = 0;
-        AdvanceBy = 4;
-    }
-    // 45 0f 78 7e NN       	vmread %r15,NN(%r14)
-    else if (ExitContext->VpException.InstructionByteCount >= 5 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x45\x0F\x78\x7e", 4)) {
-        SrcGpr = WHvX64RegisterR15;
-        DstGpr = WHvX64RegisterR14;
-        DstOffset = ExitContext->VpException.InstructionBytes[4];
-        AdvanceBy = 5;
-    }
-    // 45 0f 78 be NN NN NN NN 	vmread %r15,NN(%r14)
-    else if (ExitContext->VpException.InstructionByteCount >= 8 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x45\x0F\x78\xbe", 4)) {
-        SrcGpr = WHvX64RegisterR15;
-        DstGpr = WHvX64RegisterR14;
-        DstOffset = *((PUINT32)&ExitContext->VpException.InstructionBytes[4]);
-        AdvanceBy = 8;
-    }
-    // 44 0f 78 bc 24 NN NN NN NN 	vmread %r15,NN(%rsp)
-    else if (ExitContext->VpException.InstructionByteCount >= 9 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x44\x0F\x78\xbc\x24", 4)) {
-        SrcGpr = WHvX64RegisterR15;
-        DstGpr = WHvX64RegisterRsp;
-        DstOffset = *((PUINT32)&ExitContext->VpException.InstructionBytes[5]);
-        AdvanceBy = 9;
-    }
-    // 0f 78 9c 24 NN NN NN NN 	vmread %rbx,NN(%rsp)
-    else if (ExitContext->VpException.InstructionByteCount >= 8 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x0F\x78\x9c\x24", 4)) {
-        SrcGpr = WHvX64RegisterRbx;
-        DstGpr = WHvX64RegisterRsp;
-        DstOffset = *((PUINT32)&ExitContext->VpException.InstructionBytes[4]);
-        AdvanceBy = 8;
-    }
-    else {
+    RegModRM.Raw = InstructionBytes[RexSize + 2];
+
+    DispSize = 0;
+    switch (RegModRM.Mod) {
+    case MOD_INDIRECT_0:
+        DispSize = 0;
+        break;
+    case MOD_INDIRECT_1:
+        DispSize = 1;
+        break;
+    case MOD_INDIRECT_4:
+        DispSize = 4;
+        break;
+    case MOD_DIRECT:
         LogVcpuErr(Vm, VcpuNum, "Unrecognized VMREAD at RIP = 0x%llx\n",
             ExitContext->VpContext.Rip);
         return VcpuActionEmulationError;
     }
 
-    DstGva = GetRegister64(Vm, VcpuNum, DstGpr);
-    if (!GvaToPa(Vm, VcpuNum, DstGva, &DstPa)) {
-        return VcpuActionEmulationError;
+    SrcGpr = RegModRM.Reg;
+    DstGpr = RegModRM.Rm;
+
+    if (RexSize) {
+        if (RexPrefix.B) {
+            DstGpr += 8;
+        }
+        if (RexPrefix.R) {
+            SrcGpr += 8;
+        }
     }
-    if (!PaToHva(Vm, DstPa, (PVOID *)&DstHva)) {
-        return VcpuActionEmulationError;
+
+    SibSize = 0;
+    if (RegModRM.Rm == 0b100) {
+        SibSize = 1;
+        Sib.Raw = InstructionBytes[RexSize + 3];
+
+        // Support only the (%rsp) case
+        if ((Sib.Index != 0b100) || (Sib.Base != DstGpr)) {
+            LogVcpuErr(Vm, VcpuNum, "Unrecognized VMREAD at RIP = 0x%llx\n",
+                ExitContext->VpContext.Rip);
+            return VcpuActionEmulationError;
+        }
     }
-    DstHva += DstOffset;
+
+    DstOffset = 0;
+    RtlCopyMemory(&DstOffset, &InstructionBytes[RexSize + 3 + SibSize], DispSize);
 
     VmcsField = GetRegister64(Vm, VcpuNum, SrcGpr);
+    DstGva = GetRegister64(Vm, VcpuNum, DstGpr) + DstOffset;
+
+    DstHva = GvaToHva(Vm, VcpuNum, DstGva);
+    if (DstHva == NULL) {
+        return VcpuActionEmulationError;
+    }
 
     if (VmcsType == VmcsTypePseamldr || VmcsType == VmcsTypeTdxModule) {
         //
@@ -366,7 +282,7 @@ EmulateVMREAD(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCon
 
 Done:
     VmSucceed(Vm, VcpuNum);
-    AdvanceRipBy(Vm, VcpuNum, ExitContext, AdvanceBy);
+    AdvanceRipBy(Vm, VcpuNum, ExitContext, (SIZE_T)RexSize + 3 + SibSize + DispSize);
     return VcpuActionKeepRunning;
 }
 
@@ -398,7 +314,7 @@ EmulateVMWRITE(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCo
 
     RegModRM.Raw = InstructionBytes[RexSize + 2];
 
-    if (RegModRM.Mod != 3) {
+    if (RegModRM.Mod != MOD_DIRECT) {
         // VMWRITE with memory reference.
         LogVcpuErr(Vm, VcpuNum, "Unrecognized VMWRITE at RIP = 0x%llx\n",
             ExitContext->VpContext.Rip);

@@ -120,8 +120,8 @@ MapGpa(CORNELIUS_VM *Vm, UINT64 Gpa, SIZE_T Size)
 {
     HRESULT hRes;
 
-    if (GPA_WITHOUT_HKID(Gpa + Size) >= Vm->LastPa) {
-        FATAL("GPA_WITHOUT_HKID(Gpa + Size) >= Vm->LastPa");
+    if (GPA_WITHOUT_HKID(Gpa + Size) > Vm->LastPa) {
+        FATAL("GPA_WITHOUT_HKID(Gpa + Size) > Vm->LastPa");
     }
 
     Size = ALIGN_UP_BY(Gpa + Size, PAGE_SIZE) - ALIGN_DOWN_BY(Gpa, PAGE_SIZE);

@@ -111,6 +111,13 @@ SeamcallPseamldr_Install(CORNELIUS_VM *Vm, UINT32 VcpuNum, PUINT8 TdxBuffer, SIZ
     SeamSigstructHva->no_downgrade = FALSE;
     SeamSigstructHva->num_handoff_pages = 100;
     SeamSigstructHva->gdt_idt_offset = (UINT32)GetElfSymbolOffset(TdxBuffer, TdxSize, "tdx_idt_and_gdt_tables");
+    if (SeamSigstructHva->gdt_idt_offset == 0) {
+        // In TDX Module version 1.5.05, the symbol was renamed
+        SeamSigstructHva->gdt_idt_offset = (UINT32)GetElfSymbolOffset(TdxBuffer, TdxSize, "tdx_idt_and_gdt");
+    }
+    if (SeamSigstructHva->gdt_idt_offset == 0) {
+        FATAL("Could not find symbol for tdx_idt_and_gdt");
+    }
     SeamSigstructHva->fault_wrapper_offset = (UINT32)GetElfSymbolOffset(TdxBuffer, TdxSize, "tdx_fault_wrapper");
     SeamSigstructHva->cpuid_table_size = 1;
     SeamSigstructHva->cpuid_table[0] = 0; // p_sysinfo_table->socket_cpuid_table is full of zeroes, so keep it to zero here, to match

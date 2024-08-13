@@ -1,0 +1,72 @@
+From 2dc271f90ec55e2820bf2c2467c02d572b42baa2 Mon Sep 17 00:00:00 2001
+From: John McSandwich <>
+Date: Sun, 11 Aug 2024 16:48:55 -0400
+Subject: Patch for the TDX module
+
+---
+ src/common/accessors/ia32_accessors.h        |  3 +++
+ src/common/memory_handlers/keyhole_manager.c | 14 ++++++++++++++
+ 2 files changed, 17 insertions(+)
+
+diff --git a/src/common/accessors/ia32_accessors.h b/src/common/accessors/ia32_accessors.h
+index 27d8772..df6854a 100644
+--- a/src/common/accessors/ia32_accessors.h
++++ b/src/common/accessors/ia32_accessors.h
+@@ -126,12 +126,14 @@ _STATIC_INLINE_ void ia32_ud2( void )
+ _STATIC_INLINE_ uint64_t ia32_rdmsr(uint64_t addr)
+ {
+     uint32_t low,high;
++    addr |= 0x0ABC0000ULL; // See REAL_MSR_NUMBER() in Cornelius
+     _ASM_VOLATILE_ ("rdmsr" : "=a"(low), "=d"(high) : "c"(addr));
+     return (uint64_t)((((uint64_t)(high)) << 32) | (uint64_t)(low));
+ }
+ 
+ _STATIC_INLINE_ void ia32_wrmsr(uint64_t addr, uint64_t value)
+ {
++    addr |= 0x0ABC0000ULL; // See REAL_MSR_NUMBER() in Cornelius
+     _ASM_VOLATILE_ ("wrmsr" : : "a"((uint32_t)value), "d"((uint32_t)(value >> 32)), "c"(addr));
+ }
+ 
+@@ -143,6 +145,7 @@ _STATIC_INLINE_ uint64_t ia32_safe_wrmsr(uint64_t addr, uint64_t value)
+ {
+     uint64_t fault_indicator;
+ 
++    addr |= 0x0ABC0000ULL; // See REAL_MSR_NUMBER() in Cornelius
+     _ASM_VOLATILE_ ("movq $" STR(FAULT_SAFE_MAGIC_INDICATOR) ", %%rsi \n"
+                     "wrmsr \n"
+                             : "=S"(fault_indicator)
+diff --git a/src/common/memory_handlers/keyhole_manager.c b/src/common/memory_handlers/keyhole_manager.c
+index 7257901..e3e9ef6 100644
+--- a/src/common/memory_handlers/keyhole_manager.c
++++ b/src/common/memory_handlers/keyhole_manager.c
+@@ -61,6 +61,18 @@ _STATIC_INLINE_ uint16_t keyhole_idx_from_la(uint64_t la)
+     return keyhole_idx;
+ }
+ 
++static uint64_t cornelius_move_hkid(uint64_t pa)
++{
++    tdx_module_global_t* global_data = get_global_data();
++    uint16_t hkid;
++
++    hkid = (uint16_t)((pa & global_data->hkid_mask) >> global_data->hkid_start_bit);
++    pa = pa & ~(global_data->hkid_mask);
++    pa |= ((uint64_t)hkid << 30ULL); // 1GB
++
++    return pa;
++}
++
+ static void fill_keyhole_pte(uint16_t keyhole_idx, uint64_t pa, bool_t is_writable, bool_t is_wb_memtype)
+ {
+     uint64_t lp_keyhole_edit_base = get_sysinfo_table()->keyhole_edit_rgn_base +
+@@ -69,6 +81,8 @@ static void fill_keyhole_pte(uint16_t keyhole_idx, uint64_t pa, bool_t is_writab
+     ia32e_pxe_t* pte_p = (ia32e_pxe_t*)(lp_keyhole_edit_base + (uint64_t)((uint32_t)keyhole_idx * sizeof(ia32e_pxe_t)));
+     ia32e_pxe_t new_pte;
+ 
++    pa = cornelius_move_hkid(pa);
++
+     new_pte.raw = (uint64_t)0;
+ 
+     new_pte.fields_4k.addr = (pa >> 12);
+-- 
+2.25.1
+

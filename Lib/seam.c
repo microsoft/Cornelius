@@ -514,6 +514,7 @@ InstallSeamldrState(CORNELIUS_VM *Vm, UINT32 VcpuNum)
 VOID
 InitializeVcpuState(CORNELIUS_VM *Vm, UINT32 VcpuNum)
 {
+    GetVcpuState(Vm, VcpuNum)->MiscEnable = __BIT(7);
     GetVcpuState(Vm, VcpuNum)->Xcr0 = 0b11;
 }
 

@@ -48,6 +48,22 @@ IsRexPrefix(UINT8 Byte)
     return (Byte >= 0x40 && Byte <= 0x4F);
 }
 
+static inline BOOLEAN
+IsLegacyPrefix(UINT8 Byte)
+{
+    return (Byte == 0x26) ||
+        (Byte == 0x2E) ||
+        (Byte == 0x36) ||
+        (Byte == 0x3E) ||
+        (Byte == 0x64) ||
+        (Byte == 0x65) ||
+        (Byte == 0x66) ||
+        (Byte == 0x67) ||
+        (Byte == 0xF0) ||
+        (Byte == 0xF2) ||
+        (Byte == 0xF3);
+}
+
 static VOID
 AdvanceRip(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitContext)
 {
@@ -662,6 +678,7 @@ EmulateCPUID(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCont
         break;
     }
 
+    case 5: // MONITOR and MWAIT Features
     case 6: // Thermal and Power Management Leaf
         SetRegister64(Vm, VcpuNum, WHvX64RegisterRax, ExitContext->CpuidAccess.DefaultResultRax);
         SetRegister64(Vm, VcpuNum, WHvX64RegisterRcx, ExitContext->CpuidAccess.DefaultResultRcx);
@@ -729,6 +746,7 @@ EmulateCPUID(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCont
         break;
 
     case 8: // Reserved, zero
+    case 0xb: // Extended Topology Enumeration Leaf
     case CPUID_EXT_STATE_ENUM_LEAF:
     case 0xe: // Reserved, zero
     case 0x11:
@@ -776,6 +794,7 @@ EmulateCPUID(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCont
         break;
 
     case CPUID_KEYLOCKER_ATTRIBUTES_LEAF:
+    case 0x1A: // Native Model ID Enumeration Leaf
         SetRegister64(Vm, VcpuNum, WHvX64RegisterRax, ExitContext->CpuidAccess.DefaultResultRax);
         SetRegister64(Vm, VcpuNum, WHvX64RegisterRcx, ExitContext->CpuidAccess.DefaultResultRcx);
         SetRegister64(Vm, VcpuNum, WHvX64RegisterRdx, ExitContext->CpuidAccess.DefaultResultRdx);
@@ -867,6 +886,7 @@ EmulateRDMSR(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCont
         }
         ia32_perf_capabilities_t *PerfCaps = (ia32_perf_capabilities_t *)&MsrValue;
         PerfCaps->raw = 0;
+        PerfCaps->freeze_while_smm_supported = 1;
         PerfCaps->full_write = 1;
         break;
     }
@@ -1268,38 +1288,88 @@ EmulateSERIALIZE(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *Exit
 static enum VcpuAction
 EmulateINVEPT(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitContext)
 {
+    UINT8* InstructionBytes = ExitContext->VpException.InstructionBytes;
+    UINT8 InstructionByteCount = ExitContext->VpException.InstructionByteCount;
     UINT64 AdvanceBy;
+    UINT8 DispSize;
+    REGMODRM RegModRM;
 
-    // 66 0F 38 80 54 24 20     invept 0x20(%rsp),%rdx
-    if (ExitContext->VpException.InstructionByteCount >= 7 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x66\x0f\x38\x80\x54\x24\x20", 7)) {
-        AdvanceBy = 7;
+    //
+    // Prefixes.
+    //
+
+    if (InstructionByteCount > 0 && IsLegacyPrefix(InstructionBytes[0])) {
+        InstructionBytes += 1;
+        InstructionByteCount -= 1;
     }
-    // 66 0f 38 80 44 24 NN 	invept NN(%rsp),%rax
-    else if (ExitContext->VpException.InstructionByteCount >= 7 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x66\x0f\x38\x80\x44\x24", 6)) {
-        AdvanceBy = 7;
+    if (InstructionByteCount > 0 && IsRexPrefix(InstructionBytes[0])) {
+        InstructionBytes += 1;
+        InstructionByteCount -= 1;
     }
-    // 66 44 0f 38 80 5c 24 NN	invept NN(%rsp),%r11
-    else if (ExitContext->VpException.InstructionByteCount >= 8 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x66\x44\x0f\x38\x80\x5c\x24", 7)) {
-        AdvanceBy = 8;
-    }
-    // 66 0f 38 80 84 24 NN NN NN NN 	invept NN(%rsp),%rax
-    else if (ExitContext->VpException.InstructionByteCount >= 10 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x66\x0f\x38\x80\x84\x24", 6)) {
-        AdvanceBy = 10;
-    }
-    // 66 44 0f 38 80 ac 24 NN NN NN NN 	invept NN(%rsp),%r13
-    else if (ExitContext->VpException.InstructionByteCount >= 11 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x66\x44\x0f\x38\x80\xac\x24", 7)) {
-        AdvanceBy = 11;
-    }
-    else {
+
+    //
+    // Opcode.
+    //
+
+    if (InstructionByteCount < 4 || memcmp(InstructionBytes, "\x0f\x38\x80", 3)) {
         LogVcpuErr(Vm, VcpuNum, "Unrecognized INVEPT on #UD at RIP = 0x%llx\n",
             ExitContext->VpContext.Rip);
         return VcpuActionEmulationError;
     }
+    InstructionBytes += 3;
+    InstructionByteCount -= 3;
+
+    //
+    // RegModRm.
+    //
+
+    RegModRM.Raw = InstructionBytes[0];
+    InstructionBytes += 1;
+    InstructionByteCount -= 1;
+
+    DispSize = 0;
+    switch (RegModRM.Mod) {
+    case MOD_INDIRECT_0:
+        DispSize = 0;
+        break;
+    case MOD_INDIRECT_1:
+        DispSize = 1;
+        break;
+    case MOD_INDIRECT_4:
+        DispSize = 4;
+        break;
+    case MOD_DIRECT:
+        DispSize = 0;
+        break;
+    }
+
+    //
+    // SIB.
+    //
+
+    if (RegModRM.Rm == 0b100) {
+        if (InstructionByteCount < 1) {
+            LogVcpuErr(Vm, VcpuNum, "Unrecognized INVEPT on #UD at RIP = 0x%llx\n",
+                ExitContext->VpContext.Rip);
+            return VcpuActionEmulationError;
+        }
+        InstructionBytes += 1;
+        InstructionByteCount -= 1;
+    }
+
+    //
+    // Displacement.
+    //
+
+    if (DispSize > InstructionByteCount) {
+        LogVcpuErr(Vm, VcpuNum, "Unrecognized INVEPT on #UD at RIP = 0x%llx\n",
+            ExitContext->VpContext.Rip);
+        return VcpuActionEmulationError;
+    }
+    InstructionBytes += DispSize;
+    InstructionByteCount -= DispSize;
+
+    AdvanceBy = ExitContext->VpException.InstructionByteCount - InstructionByteCount;
 
     VmSucceed(Vm, VcpuNum);
     AdvanceRipBy(Vm, VcpuNum, ExitContext, AdvanceBy);
@@ -1360,24 +1430,21 @@ EmulatePCONFIG(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCo
 enum VcpuAction
 EmulateOnUD(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitContext)
 {
-    if (ExitContext->VpException.InstructionByteCount >= 5 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x0f\x78", 2)) {
+    UINT8* InstructionBytes = ExitContext->VpException.InstructionBytes;
+    UINT8 InstructionByteCount = ExitContext->VpException.InstructionByteCount;
+
+    if (InstructionByteCount > 0 && IsRexPrefix(InstructionBytes[0])) {
+        InstructionBytes += 1;
+        InstructionByteCount -= 1;
+    }
+
+    if (InstructionByteCount >= 4 && !memcmp(InstructionBytes, "\x0f\x78", 2)) {
         return EmulateVMREAD(Vm, VcpuNum, ExitContext);
     }
-    if (ExitContext->VpException.InstructionByteCount >= 4 &&
-        IsRexPrefix(ExitContext->VpException.InstructionBytes[0]) &&
-        !memcmp(ExitContext->VpException.InstructionBytes + 1, "\x0f\x78", 2)) {
-        return EmulateVMREAD(Vm, VcpuNum, ExitContext);
-    }
-    if (ExitContext->VpException.InstructionByteCount >= 3 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x0f\x79", 2)) {
+    if (InstructionByteCount >= 3 && !memcmp(InstructionBytes, "\x0f\x79", 2)) {
         return EmulateVMWRITE(Vm, VcpuNum, ExitContext);
     }
-    if (ExitContext->VpException.InstructionByteCount >= 4 &&
-        IsRexPrefix(ExitContext->VpException.InstructionBytes[0]) &&
-        !memcmp(ExitContext->VpException.InstructionBytes + 1, "\x0f\x79", 2)) {
-        return EmulateVMWRITE(Vm, VcpuNum, ExitContext);
-    }
+
     if (ExitContext->VpException.InstructionByteCount >= 2 &&
         !memcmp(ExitContext->VpException.InstructionBytes, "\x0f\xc7", 2)) {
         return EmulateVMPTRLD(Vm, VcpuNum, ExitContext);
@@ -1415,11 +1482,7 @@ EmulateOnUD(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitConte
         return EmulateINVEPT(Vm, VcpuNum, ExitContext);
     }
     if (ExitContext->VpException.InstructionByteCount >= 7 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x66\x44\x0f\x38\x80\x5c\x24", 7)) {
-        return EmulateINVEPT(Vm, VcpuNum, ExitContext);
-    }
-    if (ExitContext->VpException.InstructionByteCount >= 7 &&
-        !memcmp(ExitContext->VpException.InstructionBytes, "\x66\x44\x0f\x38\x80\xac\x24", 7)) {
+        !memcmp(ExitContext->VpException.InstructionBytes, "\x66\x44\x0f\x38\x80", 5)) {
         return EmulateINVEPT(Vm, VcpuNum, ExitContext);
     }
     if (ExitContext->VpException.InstructionByteCount >= 3 &&

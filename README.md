@@ -42,6 +42,13 @@ Cornelius was developed by the Microsoft MORSE team.
 
 You can now develop your own demonstrator, or fuzzer, or tester, using `Cornelius.dll`.
 
+## Supported firmware versions
+
+ - Supported TDX Module versions: `1.5.01-pc`, `1.5.05`.
+ - Supported P-SEAMLDR versions: `1.5.01.02`.
+
+Other versions were not tested but are expected to be supported in general.
+
 ## How it works
 
 What follows is a simplified rundown of TDX and Cornelius, please refer to the Intel TDX documentation for more details on TDX,

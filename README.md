@@ -33,7 +33,7 @@ Cornelius was developed by the Microsoft MORSE team.
  - Build the P-SEAMLDR and TDX module:
      - Obtain the source code from the official Intel website.
      - Apply the patches from the `TdxPatches` directory on that source code.
-     - Compile the P-SEAMLDR and TDX module.
+     - Compile the P-SEAMLDR and TDX module. Make sure to pass `DO_NOT_STRIP=1` to the `make` command lines.
      - You should now have three binaries: `pseamldr.so.consts`, `pseamldr.so`, `libtdx.so`.
  - Open `Cornelius.sln` with VisualStudio, and rebuild the project.
  - The `Binaries` directory is now created and contains `Cornelius.dll` and `Test.exe`.

@@ -50,7 +50,7 @@ index 7257901..e3e9ef6 100644
 +
 +    hkid = (uint16_t)((pa & global_data->hkid_mask) >> global_data->hkid_start_bit);
 +    pa = pa & ~(global_data->hkid_mask);
-+    pa |= ((uint64_t)hkid << 30ULL); // 1GB
++    pa |= ((uint64_t)hkid << 30ULL); // 1GB = CORNELIUS_KEYSPACE_SIZE
 +
 +    return pa;
 +}

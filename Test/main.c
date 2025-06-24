@@ -171,8 +171,23 @@ main(INT argc, PCHAR argv[])
     }
 
     //
-    // Fill in VmConfig with the parameters we want for the machine. You are free to
-    // modify all fields to create any specific configuration you want.
+    // Fill in VmConfig with the parameters we want for the machine. You are
+    // free to modify all fields to create any specific configuration you want.
+    //
+    // Pay attention that the memory ranges are not supposed to overlap, and
+    // that the highest physical address available is 1GB.
+    //
+    // Note on MKTME:
+    //
+    //     The MKTME key space is hard-coded to 1GB (CORNELIUS_KEYSPACE_SIZE).
+    //     This means that each MKTME KeyID covers 1GB of physical memory. On
+    //     real hardware that would mean that each range of 1GB of physical
+    //     memory is encrypted using a different MKTME key. In Cornelius we
+    //     emulate this behavior by creating GPA aliases towards the same HPAs,
+    //     such that any given GPA points to the same HPA as [N x 1GB + GPA] for
+    //     any N. These aliases are automatically established by Cornelius by
+    //     interecepting the PCONFIG instruction. Overall, you don't need to be
+    //     concerned with these internals.
     //
     // The memory layout we set up here is the following:
     //

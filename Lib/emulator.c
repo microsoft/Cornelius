@@ -211,6 +211,9 @@ EmulateVMREAD(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCon
         case VMX_GUEST_IA32_DEBUGCTLMSR_FULL_ENCODE:
             *((PUINT64)DstHva) = GetVcpuState(Vm, VcpuNum)->DebugCtlMsr;
             goto Done;
+        case VMX_GUEST_IA32_PERF_GLOBAL_CONTROL_FULL_ENCODE:
+            *((PUINT64)DstHva) = GetVcpuState(Vm, VcpuNum)->PerfGlobalCtrl;
+            goto Done;
         default:
             break;
         }
@@ -419,12 +422,23 @@ EmulateVMPTRLD(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCo
     UINT64 VmcsPtr;
     UINT64 AdvanceBy;
 
+    //
+    // TODO: stop being lazy and implement the decoding correctly.
+    //
+
     // 0f c7 74 24 NN      	vmptrld NN(%rsp)
     if (ExitContext->VpException.InstructionByteCount >= 5 &&
         !memcmp(ExitContext->VpException.InstructionBytes, "\x0f\xc7\x74\x24", 4)) {
         Gpr = WHvX64RegisterRsp;
         GprOffset = ExitContext->VpException.InstructionBytes[4];
         AdvanceBy = 5;
+    }
+    // 0f c7 34 24 	vmptrld (%rsp)
+    else if (ExitContext->VpException.InstructionByteCount >= 8 &&
+        !memcmp(ExitContext->VpException.InstructionBytes, "\x0f\xc7\x34\x24", 4)) {
+        Gpr = WHvX64RegisterRsp;
+        GprOffset = 0;
+        AdvanceBy = 4;
     }
     // 0f c7 b4 24 NN NN NN NN 	vmptrld NN(%rsp)
     else if (ExitContext->VpException.InstructionByteCount >= 8 &&
@@ -597,6 +611,7 @@ EmulateCPUID(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCont
         SetRegister64(Vm, VcpuNum, WHvX64RegisterRdx, ExitContext->CpuidAccess.DefaultResultRdx);
         SetRegister64(Vm, VcpuNum, WHvX64RegisterRbx, ExitContext->CpuidAccess.DefaultResultRbx);
         break;
+    case 2: // Cache and TLB Information
     case 3: // Serial number
     case CPUID_MAX_EXTENDED_VAL_LEAF:
         SetRegister64(Vm, VcpuNum, WHvX64RegisterRax, ExitContext->CpuidAccess.DefaultResultRax);
@@ -801,6 +816,7 @@ EmulateCPUID(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCont
         SetRegister64(Vm, VcpuNum, WHvX64RegisterRbx, ExitContext->CpuidAccess.DefaultResultRbx);
         break;
 
+    case 0x18: // Deterministic Address Translation Parameters
     case 0x1D:
     case 0x1E:
     case 0x20:
@@ -808,6 +824,7 @@ EmulateCPUID(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCont
     case 0x22:
     case 0x23:
     case 0x80000001:
+    case 0x80000002: // Processor Brand String
     case 0x80000006:
     case 0x80000007:
         SetRegister64(Vm, VcpuNum, WHvX64RegisterRax, ExitContext->CpuidAccess.DefaultResultRax);
@@ -835,6 +852,76 @@ EmulateRDMSR(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCont
     ia32_vmx_allowed_bits_t *VmxMsr;
     UINT32 MsrNumber;
     UINT64 MsrValue;
+
+#define PROCBASED_CTLS_UNDEF_0              __BIT(0)
+#define PROCBASED_CTLS_UNDEF_1              __BIT(1)
+#define PROCBASED_CTLS_INT_WINDOW_EXITING   __BIT(2)
+#define PROCBASED_CTLS_USE_TSC_OFFSETTING   __BIT(3)
+#define PROCBASED_CTLS_UNDEF_4              __BIT(4)
+#define PROCBASED_CTLS_UNDEF_5              __BIT(5)
+#define PROCBASED_CTLS_UNDEF_6              __BIT(6)
+#define PROCBASED_CTLS_HLT_EXITING          __BIT(7)
+#define PROCBASED_CTLS_UNDEF_8              __BIT(8)
+#define PROCBASED_CTLS_INVLPG_EXITING       __BIT(9)
+#define PROCBASED_CTLS_MWAIT_EXITING        __BIT(10)
+#define PROCBASED_CTLS_RDPMC_EXITING        __BIT(11)
+#define PROCBASED_CTLS_RDTSC_EXITING        __BIT(12)
+#define PROCBASED_CTLS_UNDEF_13             __BIT(13)
+#define PROCBASED_CTLS_UNDEF_14             __BIT(14)
+#define PROCBASED_CTLS_RCR3_EXITING         __BIT(15)
+#define PROCBASED_CTLS_LCR3_EXITING         __BIT(16)
+#define PROCBASED_CTLS_UNDEF_17             __BIT(17)
+#define PROCBASED_CTLS_UNDEF_18             __BIT(18)
+#define PROCBASED_CTLS_RCR8_EXITING         __BIT(19)
+#define PROCBASED_CTLS_LCR8_EXITING         __BIT(20)
+#define PROCBASED_CTLS_USE_TPR_SHADOW       __BIT(21)
+#define PROCBASED_CTLS_NMI_WINDOW_EXITING   __BIT(22)
+#define PROCBASED_CTLS_DR_EXITING           __BIT(23)
+#define PROCBASED_CTLS_UNCOND_IO_EXITING    __BIT(24)
+#define PROCBASED_CTLS_USE_IO_BITMAPS       __BIT(25)
+#define PROCBASED_CTLS_UNDEF_26             __BIT(26)
+#define PROCBASED_CTLS_MONITOR_TRAP_FLAG    __BIT(27)
+#define PROCBASED_CTLS_USE_MSR_BITMAPS      __BIT(28)
+#define PROCBASED_CTLS_MONITOR_EXITING      __BIT(29)
+#define PROCBASED_CTLS_PAUSE_EXITING        __BIT(30)
+#define PROCBASED_CTLS_ACTIVATE_CTLS2       __BIT(31)
+
+#define PROCBASED_CTLS_UNDEF_MUST_BE_ONE \
+    (PROCBASED_CTLS_UNDEF_0 | \
+     PROCBASED_CTLS_UNDEF_1 | \
+     PROCBASED_CTLS_UNDEF_4 | \
+     PROCBASED_CTLS_UNDEF_5 | \
+     PROCBASED_CTLS_UNDEF_6 | \
+     PROCBASED_CTLS_UNDEF_8 | \
+     PROCBASED_CTLS_UNDEF_13 | \
+     PROCBASED_CTLS_UNDEF_14 | \
+     PROCBASED_CTLS_UNDEF_18 | \
+     PROCBASED_CTLS_UNDEF_26)
+
+#define PROCBASED_CTLS_TDX_MUST_BE_ONE \
+    (PROCBASED_CTLS_USE_TSC_OFFSETTING | \
+     PROCBASED_CTLS_HLT_EXITING | \
+     PROCBASED_CTLS_UNDEF_17 | \
+     PROCBASED_CTLS_USE_TPR_SHADOW | \
+     PROCBASED_CTLS_UNCOND_IO_EXITING | \
+     PROCBASED_CTLS_USE_MSR_BITMAPS | \
+     PROCBASED_CTLS_ACTIVATE_CTLS2)
+
+#define PROCBASED_CTLS_VARIABLE \
+    (PROCBASED_CTLS_INT_WINDOW_EXITING | \
+     PROCBASED_CTLS_INVLPG_EXITING | \
+     PROCBASED_CTLS_MWAIT_EXITING | \
+     PROCBASED_CTLS_RDPMC_EXITING | \
+     PROCBASED_CTLS_RDTSC_EXITING | \
+     PROCBASED_CTLS_RCR3_EXITING | \
+     PROCBASED_CTLS_LCR3_EXITING | \
+     PROCBASED_CTLS_RCR8_EXITING | \
+     PROCBASED_CTLS_LCR8_EXITING | \
+     PROCBASED_CTLS_NMI_WINDOW_EXITING | \
+     PROCBASED_CTLS_DR_EXITING | \
+     PROCBASED_CTLS_MONITOR_TRAP_FLAG | \
+     PROCBASED_CTLS_MONITOR_EXITING | \
+     PROCBASED_CTLS_PAUSE_EXITING)
 
     MsrNumber = REAL_MSR_NUMBER(ExitContext->MsrAccess.MsrNumber);
     MsrValue = 0;
@@ -990,8 +1077,10 @@ EmulateRDMSR(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCont
         break;
     case IA32_VMX_TRUE_PROCBASED_CTLS_MSR_ADDR:
         VmxMsr = (ia32_vmx_allowed_bits_t *)&MsrValue;
-        VmxMsr->not_allowed0 = 0x91020088;
-        VmxMsr->allowed1 = VmxMsr->not_allowed0 | 0x68F81E04;
+        VmxMsr->not_allowed0 = PROCBASED_CTLS_UNDEF_MUST_BE_ONE |
+                               PROCBASED_CTLS_TDX_MUST_BE_ONE;
+        VmxMsr->allowed1 = VmxMsr->not_allowed0 |
+                           PROCBASED_CTLS_VARIABLE;
         break;
     case IA32_VMX_PROCBASED_CTLS2_MSR_ADDR:
         VmxMsr = (ia32_vmx_allowed_bits_t *)&MsrValue;
@@ -1043,6 +1132,15 @@ EmulateRDMSR(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCont
         break;
     case IA32_UARCH_MISC_CTL_MSR_ADDR:
         MsrValue = 0;
+        break;
+    case IA32_FIXED_CTR_CTRL_MSR_ADDR:
+        MsrValue = 3; // TDX_MODULE_IA32_FIXED_CTR_CTRL
+        break;
+    case IA32_PERF_GLOBAL_STATUS_MSR_ADDR:
+        MsrValue = 0;
+        break;
+    case IA32_PMC_FX0_CTR_MSR_ADDR:
+        MsrValue = GetVcpuState(Vm, VcpuNum)->PmcFx0Ctr;
         break;
     case IA32_TSC_AUX_MSR_ADDR:
         MsrValue = GetVcpuState(Vm, VcpuNum)->TscAux;
@@ -1130,6 +1228,29 @@ EmulateWRMSR(CORNELIUS_VM *Vm, UINT32 VcpuNum, WHV_RUN_VP_EXIT_CONTEXT *ExitCont
             SetPendingException(Vm, VcpuNum, WHvX64ExceptionTypeGeneralProtectionFault);
             DoAdvance = FALSE;
         }
+        break;
+    case IA32_FIXED_CTR_CTRL_MSR_ADDR:
+        if (MsrValue != 3) {
+            LogVcpuErr(Vm, VcpuNum, "Unexpected MsrValue=%llx in WRMSR to 0x%x at RIP=0x%llx, injecting #GP\n",
+                MsrValue,
+                MsrNumber,
+                ExitContext->VpContext.Rip);
+            SetPendingException(Vm, VcpuNum, WHvX64ExceptionTypeGeneralProtectionFault);
+            DoAdvance = FALSE;
+        }
+        break;
+    case IA32_PERF_GLOBAL_STATUS_MSR_ADDR:
+        if (MsrValue != 0) {
+            LogVcpuErr(Vm, VcpuNum, "Unexpected MsrValue=%llx in WRMSR to 0x%x at RIP=0x%llx, injecting #GP\n",
+                MsrValue,
+                MsrNumber,
+                ExitContext->VpContext.Rip);
+            SetPendingException(Vm, VcpuNum, WHvX64ExceptionTypeGeneralProtectionFault);
+            DoAdvance = FALSE;
+        }
+        break;
+    case IA32_PMC_FX0_CTR_MSR_ADDR:
+        GetVcpuState(Vm, VcpuNum)->PmcFx0Ctr = MsrValue;
         break;
     case MSR_SEAMVM_DEBUG:
         LogVcpuOk(Vm, VcpuNum, "Debug: 0x%llx\n", MsrValue);

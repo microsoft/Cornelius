@@ -393,7 +393,7 @@ main(INT argc, PCHAR argv[])
     LogStatus("Executing TDH.VP.ENTER\n");
     Ret = SeamcallTdx_TdhVpEnter(Vm, 0, TdVm, 0);
     if (Ret != 0) {
-        LogErr("TDH.VP.ENTER failed\n");
+        LogErr("TDH.VP.ENTER failed with RAX=%llx\n", Ret);
         return -1;
     }
 

@@ -116,6 +116,7 @@ typedef struct {
     UINT64 Pat; // VR
     UINT64 Efer; // VR
     UINT64 PerfGlobalCtrl; // VR
+    UINT64 PmcFx0Ctr; // VR
     UINT64 SysenterEsp; // VR
     UINT64 SysenterEip; // VR
     UINT64 SysenterCs; // VR

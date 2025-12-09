@@ -3,7 +3,7 @@
 Cornelius is a specialized emulator that allows to run the [Intel TDX](https://www.intel.com/content/www/us/en/developer/tools/trust-domain-extensions/overview.html)
 firmware as a VM on Hyper-V without requiring actual TDX hardware. It is useful for security testing, fuzzing, and rapid prototyping of the TDX firmware.
 
-Cornelius was developed by the Microsoft MORSE team.
+Cornelius was developed by Maxime Villard of the Microsoft MORSE team.
 
 ## Features
 
@@ -26,7 +26,7 @@ Cornelius was developed by the Microsoft MORSE team.
  - `TdxPatches`: patches to apply to the P-SEAMLDR and TDX module source code.
 
 > [!NOTE]
-> The patches to enable sanitizers will be published in the near future
+> The patches to enable sanitizers will be published in the future
 
 ## How to use
 
@@ -34,7 +34,7 @@ Cornelius was developed by the Microsoft MORSE team.
      - Obtain the source code from the official Intel website.
      - Apply the patches from the `TdxPatches` directory on that source code.
      - Compile the P-SEAMLDR and TDX module. Make sure to pass `DO_NOT_STRIP=1` to the `make` command lines.
-     - You should now have three binaries: `pseamldr.so.consts`, `pseamldr.so`, `libtdx.so`.
+     - You should now have three binaries: `pseamldr.so.consts`, `pseamldr.so`, `libtdx.so.unstripped`.
  - Open `Cornelius.sln` with VisualStudio, and rebuild the project.
  - The `Binaries` directory is now created and contains `Cornelius.dll` and `Test.exe`.
  - Copy the TDX binaries into that folder.
@@ -44,7 +44,7 @@ You can now develop your own demonstrator, or fuzzer, or tester, using `Corneliu
 
 ## Supported firmware versions
 
- - Supported TDX Module versions: `1.5.01-pc`, `1.5.05`.
+ - Supported TDX Module versions: `1.5.01-pc`, `1.5.05`, `1.5.16`.
  - Supported P-SEAMLDR versions: `1.5.01.02`.
 
 Other versions were not tested but are expected to be supported in general.

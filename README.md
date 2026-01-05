@@ -3,7 +3,7 @@
 Cornelius is a specialized emulator that allows to run the [Intel TDX](https://www.intel.com/content/www/us/en/developer/tools/trust-domain-extensions/overview.html)
 firmware as a VM on Hyper-V without requiring actual TDX hardware. It is useful for security testing, fuzzing, and rapid prototyping of the TDX firmware.
 
-Cornelius was developed by Maxime Villard of the Microsoft MORSE team.
+Cornelius was developed by Maxime Villard of the Microsoft Offensive Research team.
 
 ## Features
 
@@ -38,7 +38,7 @@ Cornelius was developed by Maxime Villard of the Microsoft MORSE team.
  - Open `Cornelius.sln` with VisualStudio, and rebuild the project.
  - The `Binaries` directory is now created and contains `Cornelius.dll` and `Test.exe`.
  - Copy the TDX binaries into that folder.
- - Go to that folder and run the demonstrator: `.\Test.exe pseamldr.so.consts pseamldr.so libtdx.so`.
+ - Go to that folder and run the demonstrator: `.\Test.exe pseamldr.so.consts pseamldr.so libtdx.so.unstripped`.
 
 You can now develop your own demonstrator, or fuzzer, or tester, using `Cornelius.dll`.
 
